@@ -1,8 +1,6 @@
 from os import getcwd
-import os 
 import openpyxl as op
 import sqlite3 as sql
-from tabulate import tabulate
 import pandas as pd
 import datetime
 
@@ -11,24 +9,27 @@ class Usuario:
     pass
 
 
-
 class Archivo:
     def __init__(self,nombre) -> None:
         self.ruta = getcwd().replace("\\","/")
         self.nombre = nombre
-        self.wb = self.leer_archivo()     #leer arachi                           
+        self.wb = self.leer_archivo()     #leer archivo                    
         if self.wb:
             self.ws = self.wb.active
             self.last_row = self.ws.max_row +1
 
     def leer_archivo(self):  #RF1 ,RF3 ,RF5
+        global creacion 
+        creacion = ''
         try:
            existe =  op.load_workbook(self.ruta + self.nombre) 
            if existe:
                 print(f'se cargo correctamente {self.nombre}')
+                creacion += f'se cargo correctamente {self.nombre} \n'
                 return existe
         except Exception:   
             print(f'no existe el archivo {self.nombre}')
+            creacion += f'no existe el archivo {self.nombre} \n'
             return None
         
     def cargar_archivo(self):
@@ -88,7 +89,7 @@ class Archivo_seven(Archivo):
         TITLE = "dummy"
         MANAGED_BY_ORG = "org"
         VISIBILITY = "confidencial"
-        USER ="Faculty_of_Engineering"
+        USER ="Faculty_of_Engineering " + str(datetime.datetime.now().strftime("%d%m%Y %H%M%S"))
 
         try:
             for row in range(2,self.last_row):
@@ -99,7 +100,7 @@ class Archivo_seven(Archivo):
 
                 if isinstance(debito,(float,int)) and  debito > 0:   #RF8 -- verificar debito 
                     id = self.ws.cell(row,4).value
-                    if str(cuenta) in self.proyectos.proyectos:
+                    if str(cuenta) in self.proyectos.proyectos:#RF14 -- verificar proyecto
                         #capturar datos
                         #variables
                         fec_registro = self.buscar_fecha_registro(celda1)
@@ -108,7 +109,7 @@ class Archivo_seven(Archivo):
                         fec_inicio = self.proyectos.proyectos[str(cuenta)].fecha_inicio
                         self.registros.append((row,id,TYPE,TITLE,MANAGED_BY_ORG,fec_inicio,"","",cuenta,ano_gasto,mes_gasto,debito,VISIBILITY,observacion,USER))
                     else:
-                        self.registros_error.append((row,id,cuenta,debito))   
+                        self.registros_error.append((row,id,cuenta,debito,'no existe el proyecto'))   
     
             return len(self.registros ) + len(self.registros_error) #self.proyectos.print()   
         except:            
@@ -118,16 +119,16 @@ class Archivo_seven(Archivo):
     def buscar_fecha_registro(self,celda1):
         return celda1.strftime('%Y-%m-%d')#RF10 -- buscar fecha
     
-    def separar_fecha(self,fec_registro):
+    def separar_fecha(self,fec_registro):#RF13 -- separa fecha
         ano_gasto = datetime.datetime.strptime(fec_registro, '%Y-%m-%d').year
         mes_gasto = datetime.datetime.strptime(fec_registro, '%Y-%m-%d').month
         return ano_gasto, mes_gasto
     
     def buscar_observacion(self,row):
-        return self.ws.cell(row,5).value #RF10 -- buscar Observación
+        return self.ws.cell(row,5).value #RF11 -- buscar Observación
     
     def buscar_codigo_contable(self,row):
-        return self.ws.cell(row,2).value #RF11 -- buscar cuenta contable
+        return self.ws.cell(row,2).value #RF12 -- buscar cuenta contable
 
 
 
@@ -195,6 +196,7 @@ class Archivo_pure(Archivo):
         self.conexion.close()   
             
     def verificar_registros(self,seven:Archivo_seven):
+        global num
         num=0
         self.crear_BD()
         for registro in seven.registros:
@@ -202,10 +204,10 @@ class Archivo_pure(Archivo):
                                     WHERE id = ? AND type = ? AND title = ? AND  managedByOrganisation = ? AND
                                     awardDate = ?  AND  idFunding = ? AND idBudget = ? AND budgetLine = ? AND
                                     year = ? AND month = ? AND expenditureValue = ? AND visibility = ? AND
-                                    observaciones = ? AND usuario = ? """ , (str(registro[1]) , str(registro[2]) , str(registro[3]) , str(registro[4]) ,str(registro[5]) , str(registro[6]),str(registro[7]) , str(registro[8]) , int(registro[9]) , int(registro[10]) ,int(registro[11]) , str(registro[12]), str(registro[13]) , str(registro[14])))
-            if  self.cursor.fetchone() == None:
+                                    observaciones = ?  """ , (str(registro[1]) , str(registro[2]) , str(registro[3]) , str(registro[4]) ,str(registro[5]) , str(registro[6]),str(registro[7]) , str(registro[8]) , int(registro[9]) , int(registro[10]) ,int(registro[11]) , str(registro[12]), str(registro[13])))
+            if  self.cursor.fetchone() == None: #RF15 -- verificar registro del gasto
                 self.registrar_seven(registro)
-                num+=1
+                num += 1
 
         self.conexion.commit()           
         self.conexion.close() 
@@ -215,10 +217,26 @@ class Archivo_pure(Archivo):
         else: 
             print(f'no hay registros nuevos') 
         print('----------------------------------------')
+        return num
         
-    def registrar_seven(self,registro:list):  
+    def registrar_seven(self,registro:list): #RF16 -----RF21  
         self.conexion.execute("INSERT INTO pure VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? ,?)", (str(registro[1]) , str(registro[2]) , str(registro[3]) , str(registro[4]) ,str(registro[5]) , str(registro[6]),str(registro[7]) , str(registro[8]) , int(registro[9]) , int(registro[10]) ,int(registro[11]) , str(registro[12]), str(registro[13]) , str(registro[14])))
   
+
+    def exportar(self): #RF22 
+        self.conexion = sql.connect('pure.db')
+        df = pd.read_sql_query("SELECT * FROM pure", self.conexion)
+
+        # Guardar los datos en un archivo de Excel
+        fecha = str(datetime.datetime.now().strftime("%d%m%Y %H%M%S"))
+        nombre_archivo = 'Reporte pure ' + fecha +'.xlsx'
+        df.to_excel(nombre_archivo, index=False)
+
+        self.conexion.commit()           
+        self.conexion.close() 
+        
+
+
 
 # seven = Archivo_seven('/gastos_seven.xlsx')
 # print(len(seven.registros))
@@ -236,75 +254,74 @@ class Archivo_pure(Archivo):
 
 
 
-if __name__ == "__main__":
+# if __name__ == "__main__":
 
+    # def menu():
+    #     print('            Migrar de SEVEN a PURE:')
+    #     print('Menú')
+    #     print('')
+    #     print('Cargar archivos : (1)')
+    #     print('Salir (0)')
+    #     print('----------------------------------------')
 
-    def menu():
-        print('            Migrar de SEVEN a PURE:')
-        print('Menú')
-        print('')
-        print('Cargar archivos : (1)')
-        print('Salir (0)')
-        print('----------------------------------------')
+    # rta = 9999
+    # menu()
 
-    rta = 9999
-    menu()
+    # while rta != 0:
 
-    while rta != 0:
+    #     rta = input('seleccione una del las opciones anteriores: ')
+    #     if rta.isnumeric():
+    #         rta = int(rta)
+    #         if 0 <= rta and rta <= 2 :
+    #             if rta == 0:
+    #                 break
 
-        rta = input('seleccione una del las opciones anteriores: ')
-        if rta.isnumeric():
-            rta = int(rta)
-            if 0 <= rta and rta <= 2 :
-                if rta == 0:
-                    break
-
-                elif rta == 1 :
-                    seven = Archivo_seven('/gastos_seven.xlsx')
-                    pure = Archivo_pure('/gastos_pure.xlsx') 
+    #             elif rta == 1 :
+    #                 seven = Archivo_seven('/gastos_seven.xlsx')
+    #                 pure = Archivo_pure('/gastos_pure.xlsx') 
                     
-                    if seven.wb != None and pure.wb != None and len(seven.proyectos.proyectos)>0:
-                        rta2 = 9999
-                        while rta2 != 0:
-                            err = len(seven.registros_error)
-                            if err > 0:
-                                print('\n\n')
-                                print('Existen '+ str(err) +' errores' )
-                                print('Desea continar  \n (1) Registrar en pure \n (2) Exportar Pure \n (3) Imprimir errores \n (0) regresar')
-                                print('----------------------------------------')
-                                rta2=input('seleccione una del las opciones anteriores: ')
-                                if rta2.isnumeric():
-                                    rta2 = int(rta2)
-                                    if 0 <= rta2 and rta2 <= 4 :
-                                        if rta2 == 1:
-                                            pure.verificar_registros(seven)
-                                        elif rta2 == 2:
-                                            pass
-                                        elif rta2 == 3:
-                                            seven.imprimir_errores()
+    #                 if seven.wb != None and pure.wb != None and len(seven.proyectos.proyectos)>0:
+    #                     rta2 = 9999
+    #                     while rta2 != 0:
+    #                         err = len(seven.registros_error)
+    #                         if err > 0:
+    #                             print('\n\n')
+    #                             print('Existen '+ str(err) +' errores' )
+    #                             print('Desea continar  \n (1) Registrar en pure \n (2) Imprimir seven \n (3) Imprimir errores \n (0) regresar')
+    #                             print('----------------------------------------')
+    #                             rta2=input('seleccione una del las opciones anteriores: ')
+    #                             if rta2.isnumeric():
+    #                                 rta2 = int(rta2)
+    #                                 if 0 <= rta2 and rta2 <= 4 :
+    #                                     if rta2 == 1:
+    #                                         pure.verificar_registros(seven)
+    #                                     elif rta2 == 2:
+    #                                         seven.imprimir_seven()
+    #                                     elif rta2 == 3:
+    #                                         seven.imprimir_errores()
 
-                                        elif rta2 ==0:
-                                            break
-                                    else:
-                                        print('\n\n----------------------------------------')     
-                                        print('                           opcion no valida, no esta dentro del rango')
-                                else:
-                                    print('\n\n----------------------------------------')  
-                                    print('                             opcion no valida, no es un entero')     
-                    else:
-                        print('\n\n----------------------------------------')
-                        print('verifique que el archivo existe o tenga el nombre correcto')    
+    #                                     elif rta2 ==0:
+    #                                         break
+    #                                 else:
+    #                                     print('\n\n----------------------------------------')     
+    #                                     print('                           opcion no valida, no esta dentro del rango')
+    #                             else:
+    #                                 print('\n\n----------------------------------------')  
+    #                                 print('                             opcion no valida, no es un entero')     
+    #                 else:
+    #                     print('\n\n----------------------------------------')
+    #                     print('verifique que el archivo existe o tenga el nombre correcto')    
 
-            else:
-                print('\n\n----------------------------------------')     
-                print('                           opcion no valida, no esta dentro del rango')
-        else:
-            print('\n\n----------------------------------------')  
-            print('                             opcion no valida, no es un entero')      
+    #         else:
+    #             print('\n\n----------------------------------------')     
+    #             print('                           opcion no valida, no esta dentro del rango')
+    #     else:
+    #         print('\n\n----------------------------------------')  
+    #         print('                             opcion no valida, no es un entero')      
 
-        rta = 999
-        print('----------------------------------------')   
-        print('')  
-        menu()
+    #     rta = 999
+    #     print('----------------------------------------')   
+    #     print('')  
+    #     menu()
 
-    print('cerró app: ')    
+    # print('cerró app: ')    
